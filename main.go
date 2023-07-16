@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 const screenDiameter = 480
 const screenCenter = 240
 const pi = false
+
+const maxGestureStrings = 20
 
 func percentToVector(percent float64, length int32) rl.Vector2 {
 
@@ -23,16 +26,66 @@ func percentToVector(percent float64, length int32) rl.Vector2 {
 }
 
 func main() {
+	// Enable 4x MSAA
+	rl.SetConfigFlags(rl.FlagMsaa4xHint)
+
 	rl.InitWindow(screenDiameter, screenDiameter, "Darius")
+	// TODO: This should drop down when not active, for CPU cycle savings.
 	rl.SetTargetFPS(60)
 	defer rl.CloseWindow()
 
 	// Constants
 	backgroundColour := rl.DarkPurple
-
 	centerVec := rl.Vector2{X: 240, Y: 240}
 
+	// Gestures
+
+	touchPosition := rl.NewVector2(0, 0)
+	touchArea := rl.NewRectangle(0, 0, screenDiameter, screenDiameter)
+
+	gestureStrings := make([]string, 0)
+
+	currentGesture := rl.GestureNone
+	lastGesture := rl.GestureNone
+
 	for !rl.WindowShouldClose() {
+
+		lastGesture = currentGesture
+		currentGesture = rl.GetGestureDetected()
+		touchPosition = rl.GetTouchPosition(0)
+
+		if rl.CheckCollisionPointRec(touchPosition, touchArea) && currentGesture != rl.GestureNone {
+			if currentGesture != lastGesture {
+				switch currentGesture {
+				case rl.GestureTap:
+					gestureStrings = append(gestureStrings, "GESTURE TAP")
+				case rl.GestureDoubletap:
+					gestureStrings = append(gestureStrings, "GESTURE DOUBLETAP")
+				case rl.GestureHold:
+					gestureStrings = append(gestureStrings, "GESTURE HOLD")
+				case rl.GestureDrag:
+					gestureStrings = append(gestureStrings, "GESTURE DRAG")
+				case rl.GestureSwipeRight:
+					gestureStrings = append(gestureStrings, "GESTURE SWIPE RIGHT")
+				case rl.GestureSwipeLeft:
+					gestureStrings = append(gestureStrings, "GESTURE SWIPE LEFT")
+				case rl.GestureSwipeUp:
+					gestureStrings = append(gestureStrings, "GESTURE SWIPE UP")
+				case rl.GestureSwipeDown:
+					gestureStrings = append(gestureStrings, "GESTURE SWIPE DOWN")
+				case rl.GesturePinchIn:
+					gestureStrings = append(gestureStrings, "GESTURE PINCH IN")
+				case rl.GesturePinchOut:
+					gestureStrings = append(gestureStrings, "GESTURE PINCH OUT")
+				}
+
+				if len(gestureStrings) >= maxGestureStrings {
+					gestureStrings = make([]string, 0)
+				}
+			}
+		}
+
+		fmt.Println(gestureStrings)
 
 		currentTime := time.Now()
 
@@ -60,7 +113,7 @@ func main() {
 		rl.DrawLineEx(centerVec, minuteVector, 8, rl.White)
 		rl.DrawLineEx(centerVec, secondVector, 4, rl.White)
 
-		rl.DrawCircle(240, 240, 10, rl.White)
+		rl.DrawCircle(240, 240, 10, rl.Black)
 
 		rl.DrawFPS(200, 440)
 
