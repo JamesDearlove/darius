@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image"
+	"image/draw"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
@@ -49,7 +50,12 @@ func downloadImage(url string) (image.Image, error) {
 		return nil, err
 	}
 
-	return img, nil
+	// Force RGBA due to Go and JPEG YCbCr weirdness
+	imgBounds := img.Bounds()
+	rbgaImg := image.NewRGBA(image.Rect(0, 0, imgBounds.Dx(), imgBounds.Dy()))
+	draw.Draw(rbgaImg, rbgaImg.Bounds(), img, imgBounds.Min, draw.Src)
+
+	return rbgaImg, nil
 }
 
 func main() {
@@ -84,6 +90,10 @@ func main() {
 
 	currentGesture := rl.GestureNone
 	lastGesture := rl.GestureNone
+	lastTouch := 0
+
+	topFps := 60
+	setFps := topFps
 
 	for !rl.WindowShouldClose() {
 
@@ -91,7 +101,15 @@ func main() {
 		currentGesture = rl.GetGestureDetected()
 		touchPosition = rl.GetTouchPosition(0)
 
+		lastTouch++
+
 		if rl.CheckCollisionPointRec(touchPosition, touchArea) && currentGesture != rl.GestureNone {
+			lastTouch = 0
+			if setFps != topFps {
+				setFps = topFps
+				rl.SetTargetFPS(int32(topFps))
+			}
+
 			if currentGesture != lastGesture {
 				switch currentGesture {
 				case rl.GestureTap:
@@ -122,6 +140,25 @@ func main() {
 			}
 		}
 
+		if currentGesture == rl.GestureSwipeLeft && currentGesture != lastGesture {
+			img, err = downloadImage("https://source.unsplash.com/480x480")
+
+			if err != nil {
+				return
+			}
+		
+			rlImg = rl.NewImageFromImage(img)
+			rlText = rl.LoadTextureFromImage(rlImg)
+			rl.UnloadImage(rlImg)
+		}
+
+		if lastTouch > 500 && setFps == topFps {
+			setFps = 10
+			rl.SetTargetFPS(10)
+
+			// TODO: Screen dimming with this
+		}
+
 		// fmt.Println(gestureStrings)
 
 		currentTime := time.Now()
@@ -145,7 +182,7 @@ func main() {
 			rl.ClearBackground(rl.Black)
 			rl.DrawCircle(240, 240, 240, backgroundColour)
 		}
-		
+
 		rl.DrawTexture(rlText, 0, 0, rl.White)
 
 		rl.DrawLineEx(centerVec, hourVector, 12, rl.White)
