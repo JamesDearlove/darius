@@ -3,7 +3,8 @@ package main
 import (
 	"fmt"
 	"image"
-	"image/draw"
+	// "image/draw"
+	"golang.org/x/image/draw"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
@@ -50,13 +51,68 @@ func downloadImage(url string) (image.Image, error) {
 		return nil, err
 	}
 
-	// Force RGBA due to Go and JPEG YCbCr weirdness
+	// Scale to size of the screen and force RGBA due to Go and JPEG YCbCr weirdness
 	imgBounds := img.Bounds()
-	rbgaImg := image.NewRGBA(image.Rect(0, 0, imgBounds.Dx(), imgBounds.Dy()))
-	draw.Draw(rbgaImg, rbgaImg.Bounds(), img, imgBounds.Min, draw.Src)
+	rbgaImg := image.NewRGBA(image.Rect(0, 0, screenDiameter, screenDiameter))
+	draw.ApproxBiLinear.Scale(rbgaImg, rbgaImg.Bounds(), img, imgBounds.Bounds(), draw.Src, nil)
 
 	return rbgaImg, nil
 }
+
+
+func centerText(text string, fontSize int32) int32 {
+	potentialLoc := (480 - rl.MeasureText(text, fontSize)) / 2
+
+	return max(0, potentialLoc)
+}
+
+
+func drawClockPage(bgTexture rl.Texture2D) {
+	// Constants
+	backgroundColour := rl.DarkPurple
+	centerVec := rl.Vector2{X: 240, Y: 240}
+
+	currentTime := time.Now()
+
+	hour := float64(currentTime.Hour() % 12)
+	minute := float64(currentTime.Minute())
+	second := float64(currentTime.Second())
+	milli := float64(currentTime.Nanosecond() / 1e6)
+
+	hourVector := percentToVector((hour*60+minute)/720, 150)
+	minuteVector := percentToVector((minute+second/60)/60, 200)
+	secondVector := percentToVector((second*1000+milli)/60000, 200)
+
+	// Draw circle to simulate if not on Pi
+	if pi {
+		rl.ClearBackground(backgroundColour)
+	} else {
+		rl.ClearBackground(rl.Black)
+		rl.DrawCircle(240, 240, 240, backgroundColour)
+	}
+
+	rl.DrawTexture(bgTexture, 0, 0, rl.White)
+
+	rl.DrawLineEx(centerVec, hourVector, 12, rl.White)
+	rl.DrawLineEx(centerVec, minuteVector, 8, rl.White)
+	rl.DrawLineEx(centerVec, secondVector, 4, rl.White)
+
+	rl.DrawCircle(240, 240, 10, rl.Black)
+}
+
+func drawMusicPage(bgTexture rl.Texture2D, blurTexture rl.Texture2D, lastChange int) {
+	alpha := rl.Color{255, 255, 255, uint8(min(255, lastChange * 10))}
+
+	rl.DrawTexture(bgTexture, 0, 0, rl.White)
+	rl.DrawTexture(blurTexture, 0, 0, alpha)
+
+	title := "Better Now (feat. MARO)"
+	artist := "ODESZA"
+
+	rl.DrawText(title, centerText(title, 32), 300, 32, rl.White)
+	rl.DrawText(artist, centerText(artist, 32), 340, 32, rl.White)
+}
+
 
 func main() {
 	// Enable 4x MSAA
@@ -67,18 +123,16 @@ func main() {
 	rl.SetTargetFPS(60)
 	defer rl.CloseWindow()
 
-	// Constants
-	backgroundColour := rl.DarkPurple
-	centerVec := rl.Vector2{X: 240, Y: 240}
-
-	img, err := downloadImage("https://source.unsplash.com/480x480")
+	img, err := downloadImage("https://spectrumculture.com/wp-content/uploads/2022/08/the-last-goodbye-odesza.jpg")
 
 	if err != nil {
 		return
 	}
 
 	rlImg := rl.NewImageFromImage(img)
-	rlText := rl.LoadTextureFromImage(rlImg)
+	rlBgTexture := rl.LoadTextureFromImage(rlImg)
+	rl.ImageBlurGaussian(rlImg, 2)
+	rlBgBlurText := rl.LoadTextureFromImage(rlImg)
 	rl.UnloadImage(rlImg)
 
 	// Gestures
@@ -95,6 +149,9 @@ func main() {
 	topFps := 60
 	setFps := topFps
 
+	currentPage := 1
+	lastChange := 0
+
 	for !rl.WindowShouldClose() {
 
 		lastGesture = currentGesture
@@ -110,6 +167,7 @@ func main() {
 				rl.SetTargetFPS(int32(topFps))
 			}
 
+			// TODO: Remove after finish debugging this.
 			if currentGesture != lastGesture {
 				switch currentGesture {
 				case rl.GestureTap:
@@ -139,17 +197,16 @@ func main() {
 				}
 			}
 		}
-
-		if currentGesture == rl.GestureSwipeLeft && currentGesture != lastGesture {
-			img, err = downloadImage("https://source.unsplash.com/480x480")
-
-			if err != nil {
-				return
-			}
 		
-			rlImg = rl.NewImageFromImage(img)
-			rlText = rl.LoadTextureFromImage(rlImg)
-			rl.UnloadImage(rlImg)
+		lastChange++
+
+		if currentGesture == rl.GestureSwipeRight && currentGesture != lastGesture {
+			if currentPage == 0 {
+				currentPage = 1
+			} else {
+				currentPage = 0
+			}
+			lastChange = 0
 		}
 
 		if lastTouch > 500 && setFps == topFps {
@@ -161,35 +218,15 @@ func main() {
 
 		// fmt.Println(gestureStrings)
 
-		currentTime := time.Now()
-
-		hour := float64(currentTime.Hour() % 12)
-		minute := float64(currentTime.Minute())
-		second := float64(currentTime.Second())
-		milli := float64(currentTime.Nanosecond() / 1e6)
-
-		hourVector := percentToVector((hour*60+minute)/720, 150)
-		minuteVector := percentToVector((minute+second/60)/60, 200)
-		secondVector := percentToVector((second*1000+milli)/60000, 200)
-
 		// DRAW
 		rl.BeginDrawing()
-
-		// Draw circle to simulate if not on Pi
-		if pi {
-			rl.ClearBackground(backgroundColour)
-		} else {
-			rl.ClearBackground(rl.Black)
-			rl.DrawCircle(240, 240, 240, backgroundColour)
+		
+		switch currentPage {
+		case 1:
+			drawMusicPage(rlBgTexture, rlBgBlurText, lastChange)
+		default:
+			drawClockPage(rlBgTexture)
 		}
-
-		rl.DrawTexture(rlText, 0, 0, rl.White)
-
-		rl.DrawLineEx(centerVec, hourVector, 12, rl.White)
-		rl.DrawLineEx(centerVec, minuteVector, 8, rl.White)
-		rl.DrawLineEx(centerVec, secondVector, 4, rl.White)
-
-		rl.DrawCircle(240, 240, 10, rl.Black)
 
 		rl.DrawFPS(200, 440)
 
